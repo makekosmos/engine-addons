@@ -1,8 +1,10 @@
 import hashlib
 import json
+import os
 import struct
 import tempfile
 import unittest
+import zlib
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,6 +142,26 @@ class ArchiveTests(unittest.TestCase):
         bom = self.bom()
         bom["runtimes"][0]["entrypoints"] = [123]
         with self.assertRaisesRegex(ArchiveError, "entrypoints"):
+            validate_bom(bom, self.root)
+
+    def test_rejects_forged_central_directory_sizes(self):
+        payload = os.urandom(8 * 1024 * 1024)
+        self.make_zip({"bin/runtime.exe": fake_pe_x64(), "LICENSE.txt": b"MIT", "pad.bin": payload})
+        blob = bytearray(self.archive.read_bytes())
+        offset = blob.find(b"PK\x01\x02")
+        while offset != -1:
+            name_length = struct.unpack_from("<H", blob, offset + 28)[0]
+            if bytes(blob[offset + 46 : offset + 46 + name_length]) == b"pad.bin":
+                struct.pack_into("<I", blob, offset + 24, 4)  # forged uncompressed size
+                struct.pack_into("<I", blob, offset + 16, zlib.crc32(payload[:4]))  # CRC matching the truncated prefix
+                break
+            offset = blob.find(b"PK\x01\x02", offset + 1)
+        else:
+            self.fail("pad.bin central record not found")
+        self.archive.write_bytes(bytes(blob))
+        bom = self.bom()
+        bom["runtimes"][0]["archive"]["files"].append("pad.bin")
+        with self.assertRaisesRegex(ArchiveError, "does not match the central directory"):
             validate_bom(bom, self.root)
 
     def test_rejects_boolean_sequence_non_string_build_and_non_zip_name(self):

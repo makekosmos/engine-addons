@@ -23,8 +23,10 @@ jobs:
       - name: Resolve immutable plan inputs
         id: plan
         shell: pwsh
+        env:
+          BOM_REF: ${{ inputs.bom_ref }}
         run: |
-          if ('${{ inputs.bom_ref }}' -notmatch '^[0-9a-f]{40}$' -or (git rev-parse HEAD) -ne '${{ inputs.bom_ref }}') { throw 'bom_ref must be the checked-out full commit SHA' }
+          if ($env:BOM_REF -notmatch '^[0-9a-f]{40}$' -or (git rev-parse HEAD) -ne $env:BOM_REF) { throw 'bom_ref must be the checked-out full commit SHA' }
           $plan = Get-Content -Raw release/runtime-v1.9.3.plan.json | ConvertFrom-Json
           "upstream=$($plan.upstream.commit)" >> $env:GITHUB_OUTPUT
           "tag=$($plan.release_tag)" >> $env:GITHUB_OUTPUT
@@ -91,11 +93,13 @@ jobs:
           Remove-Item -LiteralPath $model -Force
       - name: Package and inspect exact reviewed archives
         shell: pwsh
+        env:
+          BOM_REF: ${{ inputs.bom_ref }}
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
           python scripts/package_runtime.py --bin whisper/build-cpu/bin --licence whisper/LICENSE --output out/whisper-cpu-bin-x64-v1.9.3.zip
           python scripts/package_runtime.py --bin whisper/build-vulkan/bin --licence whisper/LICENSE --output out/whisper-vulkan-bin-x64-v1.9.3.zip --vulkan
-          node scripts/resolve-release.mjs --plan release/runtime-v1.9.3.plan.json --assets out --repository-commit '${{ inputs.bom_ref }}' --bom out/release-bom.v1.json --manifest out/runtimes.manifest.json
+          node scripts/resolve-release.mjs --plan release/runtime-v1.9.3.plan.json --assets out --repository-commit "$env:BOM_REF" --bom out/release-bom.v1.json --manifest out/runtimes.manifest.json
           python scripts/inspect_archives.py --bom out/release-bom.v1.json --assets out
       - name: Upload verified unsigned release inputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -125,10 +129,11 @@ jobs:
       - name: Preflight immutable release and sequence without signing key
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          BOM_REF: ${{ inputs.bom_ref }}
         run: |
           set -Eeuo pipefail
           tag=$(node -p "require('./release/runtime-v1.9.3.plan.json').release_tag")
-          test "$(git rev-parse HEAD)" = '${{ inputs.bom_ref }}'
+          test "$(git rev-parse HEAD)" = "$BOM_REF"
           node scripts/release-preflight.mjs --tag "$tag" --previous runtimes.manifest.json --candidate out/runtimes.manifest.json --repository makekosmos/local-ai-runtimes
           python scripts/inspect_archives.py --bom out/release-bom.v1.json --assets out
       - name: Sign exact verified manifest
@@ -138,6 +143,7 @@ jobs:
       - name: Publish immutable release and verify downloaded bytes
         env:
           GH_TOKEN: ${{ github.token }}
+          BOM_REF: ${{ inputs.bom_ref }}
         run: |
           set -Eeuo pipefail
           tag=$(node -p "require('./release/runtime-v1.9.3.plan.json').release_tag")
@@ -148,7 +154,7 @@ jobs:
             fi
           }
           trap cleanup EXIT
-          gh release create "$tag" --draft --target '${{ inputs.bom_ref }}' --title "Kosmos local AI runtimes 1.9.3"
+          gh release create "$tag" --draft --target "$BOM_REF" --title "Kosmos local AI runtimes 1.9.3"
           created=true
           gh release upload "$tag" out/whisper-cpu-bin-x64-v1.9.3.zip out/whisper-vulkan-bin-x64-v1.9.3.zip out/release-bom.v1.json out/runtimes.manifest.json out/runtimes.manifest.envelope.json
           gh release edit "$tag" --draft=false

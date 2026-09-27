@@ -18,6 +18,14 @@ for (const [name, mutate, pattern] of [
   ["bad hash", (m) => { m.runtimes[0].archive.sha256 = "bad"; }, /SHA-256/],
   ["mutable release URL", (m) => { m.runtimes[0].archive.url = "https://raw.githubusercontent.com/makekosmos/local-ai-runtimes/main/x.zip"; }, /immutable versioned release/],
   ["future timestamp", (m) => { m.generated_at = "2026-09-02T00:00:00Z"; }, /future/],
+  ["missing archive allowlist", (m) => { delete m.runtimes[0].archive.files; }, /allowlist/],
+  ["unsafe archive allowlist member", (m) => { m.runtimes[0].archive.files.push("Release/whisper.dll:ads"); }, /unsafe/],
+  ["entrypoint outside allowlist", (m) => { m.runtimes[0].entrypoints = ["Release/evil.exe"]; }, /allowlist/],
+  ["licence outside allowlist", (m) => { m.runtimes[0].licences[0].path = "LICENSE.other.txt"; }, /allowlist/],
+  ["backend/accelerator mismatch", (m) => { m.runtimes[0].accelerator = "vulkan"; }, /mismatch/],
+  ["case-colliding allowlist", (m) => { m.runtimes[0].archive.files.push("release/ggml-base.DLL"); }, /case-colliding/],
+  ["Windows device name in allowlist", (m) => { m.runtimes[0].archive.files.push("NUL.txt"); }, /unsafe/],
+  ["release tag for a different version", (m) => { m.runtimes[0].archive.url = "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v11.9.3/whisper-cpu-bin-x64-v1.9.3.zip"; }, /immutable versioned release/],
 ]) test(name, () => assert.throws(() => {
   const manifest = structuredClone(source);
   mutate(manifest);
@@ -40,6 +48,7 @@ test("sequence increments exactly once and timestamp increases", () => {
   assert.equal(assertSequence(source, candidate), true);
   candidate.sequence += 1;
   assert.throws(() => assertSequence(source, candidate), /exactly once/);
+  assert.throws(() => assertSequence({ ...source, generated_at: "not-a-timestamp" }, { ...source, sequence: source.sequence + 1, generated_at: "2026-09-01T00:00:01Z" }), /timestamp must increase/);
 });
 
 test("preflight rejects existing release and tag before signing", () => {

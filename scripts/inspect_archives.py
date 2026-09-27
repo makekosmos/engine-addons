@@ -10,6 +10,7 @@ import re
 import stat
 import struct
 import sys
+import zlib
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -50,6 +51,55 @@ def safe_member(name: str) -> PurePosixPath:
         if part != part.rstrip(" .") or stem in WINDOWS_DEVICES:
             raise ArchiveError(f"unsafe Windows archive path: {name!r}")
     return path
+
+
+def member_payload(stream: zipfile.ZipFile, info: zipfile.ZipInfo) -> tuple[int, int]:
+    """Inflate a member's raw compressed region; return (size, crc32) actually produced.
+
+    Central-directory file_size/CRC are attacker-controlled claims; the archive is
+    only verified once its deflate stream is shown to produce exactly those values.
+    """
+    if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        raise ArchiveError(f"{info.filename}: unsupported compression method {info.compress_type}")
+    fp = stream.fp
+    fp.seek(info.header_offset)
+    header = fp.read(30)
+    if len(header) != 30 or header[:4] != b"PK\x03\x04":
+        raise ArchiveError(f"{info.filename}: invalid local file header")
+    name_length, extra_length = struct.unpack_from("<HH", header, 26)
+    fp.seek(name_length + extra_length, os.SEEK_CUR)
+    decompressor = zlib.decompressobj(-15) if info.compress_type == zipfile.ZIP_DEFLATED else None
+    remaining = info.compress_size
+    produced = 0
+    crc = 0
+    while remaining > 0:
+        chunk = fp.read(min(remaining, 1024 * 1024))
+        if not chunk:
+            raise ArchiveError(f"{info.filename}: member data is truncated")
+        remaining -= len(chunk)
+        if decompressor is None:
+            produced += len(chunk)
+            crc = zlib.crc32(chunk, crc)
+        else:
+            pending = chunk
+            while pending:
+                out = decompressor.decompress(pending, MAX_UNCOMPRESSED + 1 - produced)
+                produced += len(out)
+                crc = zlib.crc32(out, crc)
+                pending = decompressor.unconsumed_tail
+                if produced > MAX_UNCOMPRESSED:
+                    raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+        if produced > MAX_UNCOMPRESSED:
+            raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+    if decompressor is not None:
+        tail = decompressor.flush()
+        produced += len(tail)
+        crc = zlib.crc32(tail, crc)
+        if produced > MAX_UNCOMPRESSED:
+            raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+        if not decompressor.eof or decompressor.unused_data:
+            raise ArchiveError(f"{info.filename}: compressed stream does not match its declared size")
+    return produced, crc
 
 
 def pe_machine(stream, info: zipfile.ZipInfo) -> int:
@@ -118,17 +168,20 @@ def inspect_archive(archive: Path, item: dict) -> dict:
                 raise ArchiveError(f"{archive.name}: special device or reparse entries are forbidden")
             if info.is_dir():
                 continue
-            with stream.open(info, "r") as member:
-                member.read(1)  # forces local-header/name/encryption validation
             if path.as_posix() not in allowed:
                 raise ArchiveError(f"{archive.name}: unexpected file {path}")
-            total += info.file_size
-            if total > MAX_UNCOMPRESSED:
-                raise ArchiveError(f"{archive.name}: uncompressed size limit exceeded")
+            with stream.open(info, "r") as member:
+                member.read(1)  # forces local-header/name/encryption validation
             if info.compress_size == 0 and info.file_size > 0:
                 raise ArchiveError(f"{archive.name}: invalid compression ratio")
             if info.compress_size and info.file_size / info.compress_size > MAX_RATIO:
                 raise ArchiveError(f"{archive.name}: compression ratio limit exceeded")
+            produced, crc = member_payload(stream, info)
+            if produced != info.file_size or crc != info.CRC:
+                raise ArchiveError(f"{archive.name}: member content does not match the central directory: {path}")
+            total += produced
+            if total > MAX_UNCOMPRESSED:
+                raise ArchiveError(f"{archive.name}: uncompressed size limit exceeded")
         names = {info.filename for info in infos if not info.is_dir()}
         missing = allowed - names
         if missing:
