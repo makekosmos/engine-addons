@@ -38,7 +38,7 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
     const coordinate = `${runtime.id}@${runtime.version}:${runtime.platform}:${runtime.architecture}:${runtime.backend}`;
     if (coordinates.has(coordinate)) throw new Error(`duplicate runtime coordinate: ${coordinate}`);
     coordinates.add(coordinate);
-    if (!Array.isArray(runtime.entrypoints) || runtime.entrypoints.length === 0 || new Set(runtime.entrypoints.map((value) => value.toLowerCase())).size !== runtime.entrypoints.length) throw new Error(`${runtime.id}: unique entrypoints are required`);
+    if (!Array.isArray(runtime.entrypoints) || runtime.entrypoints.length === 0 || runtime.entrypoints.some((value) => typeof value !== "string") || new Set(runtime.entrypoints.map((value) => value.toLowerCase())).size !== runtime.entrypoints.length) throw new Error(`${runtime.id}: unique entrypoints are required`);
     for (const entrypoint of runtime.entrypoints) validateArchivePath(entrypoint, `${runtime.id}: entrypoint`);
 
     const archive = runtime.archive;
