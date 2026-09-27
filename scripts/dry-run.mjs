@@ -24,7 +24,7 @@ const candidate = {
   runtimes: [{
     id: "fixture-runtime", version: "2.0.0", platform: "windows", architecture: "x64", backend: "cpu", accelerator: "none",
     entrypoints: ["bin/runtime.exe"],
-    archive: { name: "fixture-runtime.zip", url: `https://github.com/makekosmos/local-ai-runtimes/releases/download/${tag}/fixture-runtime.zip`, sha256: "a".repeat(64), size: 123, format: "zip" },
+    archive: { name: "fixture-runtime.zip", url: `https://github.com/makekosmos/local-ai-runtimes/releases/download/${tag}/fixture-runtime.zip`, sha256: "a".repeat(64), size: 123, format: "zip", files: ["bin/runtime.exe", "LICENSE.txt"] },
     source: { project: "fixture/upstream", version: "2.0.0", commit: "b".repeat(40) },
     build: { recipe: "fixtures/build.ps1", toolchain: "fixture-msvc" },
     licences: [{ spdx: "MIT", path: "LICENSE.txt" }], migration_status: "release-asset"

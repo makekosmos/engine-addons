@@ -9,6 +9,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const RELEASE_URL = /^https:\/\/github\.com\/makekosmos\/local-ai-runtimes\/releases\/download\/([^/]+)\/([^/]+)$/;
 const LEGACY_URL = /^https:\/\/raw\.githubusercontent\.com\/makekosmos\/local-ai-runtimes\/([a-f0-9]{40})\/([^/]+)$/;
+const WINDOWS_DEVICES = new Set(["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]);
 
 function requiredString(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is required`);
@@ -32,6 +33,7 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
     if (!SEMVER.test(runtime.version || "")) throw new Error(`${runtime.id}: invalid version`);
     if (runtime.platform !== "windows" || runtime.architecture !== "x64") throw new Error(`${runtime.id}: unsupported platform/architecture`);
     if (!["cpu", "vulkan"].includes(runtime.backend) || !["none", "vulkan"].includes(runtime.accelerator)) throw new Error(`${runtime.id}: unsupported backend/accelerator`);
+    if ((runtime.backend === "cpu") !== (runtime.accelerator === "none")) throw new Error(`${runtime.id}: backend/accelerator mismatch`);
     const coordinate = `${runtime.id}@${runtime.version}:${runtime.platform}:${runtime.architecture}:${runtime.backend}`;
     if (coordinates.has(coordinate)) throw new Error(`duplicate runtime coordinate: ${coordinate}`);
     coordinates.add(coordinate);
@@ -44,6 +46,11 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
     if (archive.name.includes("/")) throw new Error(`${runtime.id}: archive name must be flat`);
     if (!SHA256.test(archive.sha256 || "")) throw new Error(`${runtime.id}: exact SHA-256 is required`);
     if (!Number.isSafeInteger(archive.size) || archive.size <= 0) throw new Error(`${runtime.id}: exact size is required`);
+    if (!Array.isArray(archive.files) || archive.files.length === 0) throw new Error(`${runtime.id}: complete archive file allowlist is required`);
+    archive.files.forEach((file) => validateArchivePath(file, `${runtime.id}: archive file`));
+    if (new Set(archive.files.map((file) => file.toLowerCase())).size !== archive.files.length) throw new Error(`${runtime.id}: duplicate/case-colliding archive file`);
+    const declaredFiles = new Set(archive.files);
+    for (const entrypoint of runtime.entrypoints) if (!declaredFiles.has(entrypoint)) throw new Error(`${runtime.id}: entrypoint is not in the archive allowlist`);
 
     if (manifest.status === "release") {
       const match = RELEASE_URL.exec(archive.url || "");
@@ -58,6 +65,7 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
       runtime.licences.forEach((licence, index) => {
         requiredString(licence?.spdx, `${runtime.id}: licence ${index} SPDX`);
         validateArchivePath(licence?.path, `${runtime.id}: licence ${index} path`);
+        if (!declaredFiles.has(licence.path)) throw new Error(`${runtime.id}: licence ${index} path is not in the archive allowlist`);
       });
       requiredString(manifest.signing_key_id, "manifest signing_key_id");
     } else {
@@ -72,9 +80,14 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
 
 export function validateArchivePath(value, label = "archive path") {
   requiredString(value, label);
-  if (value.includes("\\") || value.includes("\0") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) throw new Error(`${label} is unsafe`);
+  if (value.includes("\\") || value.includes("\0") || value.includes(":") || value.startsWith("/")) throw new Error(`${label} is unsafe`);
   const parts = value.split("/");
   if (parts.some((part) => part === "" || part === "." || part === "..")) throw new Error(`${label} is unsafe`);
+  for (const part of parts) {
+    const stripped = part.replace(/[. ]+$/, "");
+    const stem = stripped.split(".", 1)[0].toUpperCase();
+    if (part !== stripped || WINDOWS_DEVICES.has(stem)) throw new Error(`${label} is unsafe`);
+  }
   return true;
 }
 
