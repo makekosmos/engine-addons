@@ -73,39 +73,45 @@ def member_payload(stream: zipfile.ZipFile, info: zipfile.ZipInfo) -> tuple[int,
     remaining = info.compress_size
     produced = 0
     crc = 0
-    while remaining > 0:
-        chunk = fp.read(min(remaining, 1024 * 1024))
-        if not chunk:
-            raise ArchiveError(f"{info.filename}: member data is truncated")
-        remaining -= len(chunk)
-        if decompressor is None:
-            produced += len(chunk)
-            crc = zlib.crc32(chunk, crc)
-        else:
-            pending = chunk
-            while pending:
-                out = decompressor.decompress(pending, MAX_UNCOMPRESSED + 1 - produced)
-                produced += len(out)
-                crc = zlib.crc32(out, crc)
-                pending = decompressor.unconsumed_tail
-                if produced > MAX_UNCOMPRESSED:
-                    raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
-        if produced > MAX_UNCOMPRESSED:
-            raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
-    if decompressor is not None:
-        tail = decompressor.flush()
-        produced += len(tail)
-        crc = zlib.crc32(tail, crc)
-        if produced > MAX_UNCOMPRESSED:
-            raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
-        if not decompressor.eof or decompressor.unused_data:
-            raise ArchiveError(f"{info.filename}: compressed stream does not match its declared size")
+    try:
+        while remaining > 0:
+            chunk = fp.read(min(remaining, 1024 * 1024))
+            if not chunk:
+                raise ArchiveError(f"{info.filename}: member data is truncated")
+            remaining -= len(chunk)
+            if decompressor is None:
+                produced += len(chunk)
+                crc = zlib.crc32(chunk, crc)
+            else:
+                pending = chunk
+                while pending:
+                    out = decompressor.decompress(pending, MAX_UNCOMPRESSED + 1 - produced)
+                    produced += len(out)
+                    crc = zlib.crc32(out, crc)
+                    pending = decompressor.unconsumed_tail
+                    if produced > MAX_UNCOMPRESSED:
+                        raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+            if produced > MAX_UNCOMPRESSED:
+                raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+        if decompressor is not None:
+            tail = decompressor.flush()
+            produced += len(tail)
+            crc = zlib.crc32(tail, crc)
+            if produced > MAX_UNCOMPRESSED:
+                raise ArchiveError(f"{info.filename}: uncompressed size limit exceeded")
+            if not decompressor.eof or decompressor.unused_data:
+                raise ArchiveError(f"{info.filename}: compressed stream does not match its declared size")
+    except zlib.error as error:
+        raise ArchiveError(f"{info.filename}: corrupt compressed data") from error
     return produced, crc
 
 
 def pe_machine(stream, info: zipfile.ZipInfo) -> int:
-    with stream.open(info, "r") as member:
-        data = member.read(4096)
+    try:
+        with stream.open(info, "r") as member:
+            data = member.read(4096)
+    except zlib.error as error:
+        raise ArchiveError(f"{info.filename}: corrupt compressed data") from error
     if len(data) < 64 or data[:2] != b"MZ":
         raise ArchiveError(f"entrypoint is not a PE executable: {info.filename}")
     offset = struct.unpack_from("<I", data, 0x3C)[0]
@@ -138,61 +144,65 @@ def inspect_archive(archive: Path, item: dict) -> dict:
             raise ArchiveError(f"{archive.name}: compressed size limit exceeded")
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digestor.update(chunk)
-    digest = digestor.hexdigest()
-    if digest != item["archive"]["sha256"]:
-        raise ArchiveError(f"{archive.name}: SHA-256 mismatch")
+        digest = digestor.hexdigest()
+        if digest != item["archive"]["sha256"]:
+            raise ArchiveError(f"{archive.name}: SHA-256 mismatch")
 
-    declared_files = item["archive"]["files"]
-    if len({name.casefold() for name in declared_files}) != len(declared_files):
-        raise ArchiveError(f"{archive.name}: duplicate/case-colliding declared file")
-    allowed = set(declared_files)
-    entrypoints = set(item["entrypoints"])
-    licence_paths = {licence["path"] for licence in item["licences"]}
-    seen: set[str] = set()
-    total = 0
-    with zipfile.ZipFile(archive) as stream:
-        infos = stream.infolist()
-        if not infos or len(infos) > MAX_ENTRIES:
-            raise ArchiveError(f"{archive.name}: invalid entry count")
-        for info in infos:
-            path = safe_member(info.filename)
-            normalized = path.as_posix().casefold()
-            if normalized in seen:
-                raise ArchiveError(f"{archive.name}: duplicate/case-colliding path {path}")
-            seen.add(normalized)
-            if info.flag_bits & 1:
-                raise ArchiveError(f"{archive.name}: encrypted entries are forbidden")
-            mode = info.external_attr >> 16
-            if stat.S_ISLNK(mode):
-                raise ArchiveError(f"{archive.name}: symbolic links are forbidden")
-            if any(check(mode) for check in (stat.S_ISCHR, stat.S_ISBLK, stat.S_ISFIFO, stat.S_ISSOCK)) or info.external_attr & 0x400:
-                raise ArchiveError(f"{archive.name}: special device or reparse entries are forbidden")
-            if info.is_dir():
-                continue
-            if path.as_posix() not in allowed:
-                raise ArchiveError(f"{archive.name}: unexpected file {path}")
-            with stream.open(info, "r") as member:
-                member.read(1)  # forces local-header/name/encryption validation
-            if info.compress_size == 0 and info.file_size > 0:
-                raise ArchiveError(f"{archive.name}: invalid compression ratio")
-            if info.compress_size and info.file_size / info.compress_size > MAX_RATIO:
-                raise ArchiveError(f"{archive.name}: compression ratio limit exceeded")
-            produced, crc = member_payload(stream, info)
-            if produced != info.file_size or crc != info.CRC:
-                raise ArchiveError(f"{archive.name}: member content does not match the central directory: {path}")
-            total += produced
-            if total > MAX_UNCOMPRESSED:
-                raise ArchiveError(f"{archive.name}: uncompressed size limit exceeded")
-        names = {info.filename for info in infos if not info.is_dir()}
-        missing = allowed - names
-        if missing:
-            raise ArchiveError(f"{archive.name}: missing expected files: {sorted(missing)}")
-        if not licence_paths or not licence_paths <= names:
-            raise ArchiveError(f"{archive.name}: licence files are missing")
-        by_name = {info.filename: info for info in infos}
-        for entrypoint in entrypoints:
-            if entrypoint not in by_name or pe_machine(stream, by_name[entrypoint]) != 0x8664:
-                raise ArchiveError(f"{archive.name}: entrypoint is not Windows x64: {entrypoint}")
+        declared_files = item["archive"]["files"]
+        if len({name.casefold() for name in declared_files}) != len(declared_files):
+            raise ArchiveError(f"{archive.name}: duplicate/case-colliding declared file")
+        allowed = set(declared_files)
+        entrypoints = set(item["entrypoints"])
+        licence_paths = {licence["path"] for licence in item["licences"]}
+        seen: set[str] = set()
+        total = 0
+        # Parse the same verified descriptor; re-opening by name would TOCTOU the hash pin.
+        with zipfile.ZipFile(source) as stream:
+            infos = stream.infolist()
+            if not infos or len(infos) > MAX_ENTRIES:
+                raise ArchiveError(f"{archive.name}: invalid entry count")
+            for info in infos:
+                path = safe_member(info.filename)
+                normalized = path.as_posix().casefold()
+                if normalized in seen:
+                    raise ArchiveError(f"{archive.name}: duplicate/case-colliding path {path}")
+                seen.add(normalized)
+                if info.flag_bits & 1:
+                    raise ArchiveError(f"{archive.name}: encrypted entries are forbidden")
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise ArchiveError(f"{archive.name}: symbolic links are forbidden")
+                if any(check(mode) for check in (stat.S_ISCHR, stat.S_ISBLK, stat.S_ISFIFO, stat.S_ISSOCK)) or info.external_attr & 0x400:
+                    raise ArchiveError(f"{archive.name}: special device or reparse entries are forbidden")
+                if info.is_dir():
+                    continue
+                if path.as_posix() not in allowed:
+                    raise ArchiveError(f"{archive.name}: unexpected file {path}")
+                try:
+                    with stream.open(info, "r") as member:
+                        member.read(1)  # forces local-header/name/encryption validation
+                except zlib.error as error:
+                    raise ArchiveError(f"{archive.name}: corrupt compressed data: {path}") from error
+                if info.compress_size == 0 and info.file_size > 0:
+                    raise ArchiveError(f"{archive.name}: invalid compression ratio")
+                if info.compress_size and info.file_size / info.compress_size > MAX_RATIO:
+                    raise ArchiveError(f"{archive.name}: compression ratio limit exceeded")
+                produced, crc = member_payload(stream, info)
+                if produced != info.file_size or crc != info.CRC:
+                    raise ArchiveError(f"{archive.name}: member content does not match the central directory: {path}")
+                total += produced
+                if total > MAX_UNCOMPRESSED:
+                    raise ArchiveError(f"{archive.name}: uncompressed size limit exceeded")
+            names = {info.filename for info in infos if not info.is_dir()}
+            missing = allowed - names
+            if missing:
+                raise ArchiveError(f"{archive.name}: missing expected files: {sorted(missing)}")
+            if not licence_paths or not licence_paths <= names:
+                raise ArchiveError(f"{archive.name}: licence files are missing")
+            by_name = {info.filename: info for info in infos}
+            for entrypoint in entrypoints:
+                if entrypoint not in by_name or pe_machine(stream, by_name[entrypoint]) != 0x8664:
+                    raise ArchiveError(f"{archive.name}: entrypoint is not Windows x64: {entrypoint}")
     return {"name": archive.name, "sha256": digest, "size": actual_size, "files": len(seen)}
 
 

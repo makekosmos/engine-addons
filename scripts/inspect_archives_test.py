@@ -4,6 +4,7 @@ import os
 import struct
 import tempfile
 import unittest
+import unittest.mock
 import zlib
 import zipfile
 from datetime import datetime, timezone
@@ -174,6 +175,30 @@ class ArchiveTests(unittest.TestCase):
         bom["runtimes"] = None
         with self.assertRaisesRegex(ArchiveError, "list"):
             validate_bom(bom, self.root)
+
+    def test_archive_parsing_reuses_the_hashed_descriptor(self):
+        self.make_zip()
+        calls = []
+        real = zipfile.ZipFile
+        def spy(file, *args, **kwargs):
+            calls.append(file)
+            return real(file, *args, **kwargs)
+        with unittest.mock.patch.object(zipfile, "ZipFile", side_effect=spy):
+            results = validate_bom(self.bom(), self.root, now=datetime(2026, 8, 30, 0, 1, tzinfo=timezone.utc))
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(isinstance(calls[0], (str, bytes, Path)))
+        self.assertTrue(hasattr(calls[0], "fileno"))
+        self.assertEqual(results[0]["files"], 2)
+
+    def test_rejects_corrupt_deflate_member(self):
+        self.make_zip()
+        blob = bytearray(self.archive.read_bytes())
+        name_offset = blob.find(b"LICENSE.txt")
+        self.assertNotEqual(name_offset, -1)
+        blob[name_offset + len(b"LICENSE.txt") : name_offset + len(b"LICENSE.txt") + 6] = b"\xff" * 6
+        self.archive.write_bytes(bytes(blob))
+        with self.assertRaises(ArchiveError):
+            validate_bom(self.bom(), self.root)
 
     def test_rejects_boolean_sequence_non_string_build_and_non_zip_name(self):
         self.make_zip()
