@@ -9,6 +9,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const RELEASE_URL = /^https:\/\/github\.com\/makekosmos\/local-ai-runtimes\/releases\/download\/([^/]+)\/([^/]+)$/;
 const LEGACY_URL = /^https:\/\/raw\.githubusercontent\.com\/makekosmos\/local-ai-runtimes\/([a-f0-9]{40})\/([^/]+)$/;
+const TAG_VERSION = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*-)?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
 const WINDOWS_DEVICES = new Set(["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"]);
 
 function requiredString(value, label) {
@@ -54,7 +55,8 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
 
     if (manifest.status === "release") {
       const match = RELEASE_URL.exec(archive.url || "");
-      if (!match || match[2] !== archive.name || !match[1].includes(runtime.version)) throw new Error(`${runtime.id}: immutable versioned release URL is required`);
+      const tagVersion = match && TAG_VERSION.exec(match[1]);
+      if (!match || match[2] !== archive.name || !tagVersion || tagVersion[1] !== runtime.version) throw new Error(`${runtime.id}: immutable versioned release URL is required`);
       if (runtime.migration_status !== "release-asset") throw new Error(`${runtime.id}: release asset status is required`);
       requiredString(runtime.source?.project, `${runtime.id}: source project`);
       requiredString(runtime.source?.version, `${runtime.id}: source version`);
@@ -108,7 +110,9 @@ export function verifyEnvelope(manifestBytes, envelope, publicKeys) {
 export function assertSequence(previous, candidate) {
   if (candidate.schema_version !== previous.schema_version) throw new Error("schema version cannot change in a sequence update");
   if (candidate.sequence !== previous.sequence + 1) throw new Error("candidate sequence must increment exactly once");
-  if (Date.parse(candidate.generated_at) <= Date.parse(previous.generated_at)) throw new Error("candidate timestamp must increase");
+  const candidateAt = Date.parse(candidate.generated_at);
+  const previousAt = Date.parse(previous.generated_at);
+  if (!Number.isFinite(candidateAt) || !Number.isFinite(previousAt) || candidateAt <= previousAt) throw new Error("candidate timestamp must increase");
   return true;
 }
 

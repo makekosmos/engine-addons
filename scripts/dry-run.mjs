@@ -14,7 +14,7 @@ const previousBytes = await readFile(new URL("../runtimes.manifest.json", import
 const previous = JSON.parse(previousBytes);
 validateManifest(previous);
 
-const tag = "runtime-v2.0.0-test";
+const tag = "runtime-v2.0.0";
 const candidate = {
   schema_version: 1,
   sequence: previous.sequence + 1,

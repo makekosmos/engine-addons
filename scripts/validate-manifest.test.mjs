@@ -25,6 +25,7 @@ for (const [name, mutate, pattern] of [
   ["backend/accelerator mismatch", (m) => { m.runtimes[0].accelerator = "vulkan"; }, /mismatch/],
   ["case-colliding allowlist", (m) => { m.runtimes[0].archive.files.push("release/ggml-base.DLL"); }, /case-colliding/],
   ["Windows device name in allowlist", (m) => { m.runtimes[0].archive.files.push("NUL.txt"); }, /unsafe/],
+  ["release tag for a different version", (m) => { m.runtimes[0].archive.url = "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v11.9.3/whisper-cpu-bin-x64-v1.9.3.zip"; }, /immutable versioned release/],
 ]) test(name, () => assert.throws(() => {
   const manifest = structuredClone(source);
   mutate(manifest);
@@ -47,6 +48,7 @@ test("sequence increments exactly once and timestamp increases", () => {
   assert.equal(assertSequence(source, candidate), true);
   candidate.sequence += 1;
   assert.throws(() => assertSequence(source, candidate), /exactly once/);
+  assert.throws(() => assertSequence({ ...source, generated_at: "not-a-timestamp" }, { ...source, sequence: source.sequence + 1, generated_at: "2026-09-01T00:00:01Z" }), /timestamp must increase/);
 });
 
 test("preflight rejects existing release and tag before signing", () => {
