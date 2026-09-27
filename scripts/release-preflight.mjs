@@ -6,6 +6,7 @@ import { assertSequence, validateManifest } from "./validate-manifest.mjs";
 
 export function preflight({ tag, existingTags = [], existingReleases = [], previous, candidate, now = new Date() }) {
   if (typeof tag !== "string" || !tag.trim()) throw new Error("release tag is required");
+  if (!Array.isArray(existingTags) || !Array.isArray(existingReleases)) throw new Error("existing tag/release observations must be lists");
   if (existingTags.includes(tag)) throw new Error(`release tag already exists: ${tag}`);
   if (existingReleases.includes(tag)) throw new Error(`release already exists: ${tag}`);
   validateManifest(candidate, { now });
@@ -39,7 +40,8 @@ async function main() {
   const state = args.get("--state")
     ? JSON.parse(await readFile(args.get("--state"), "utf8"))
     : await githubState(args.get("--repository") || "makekosmos/local-ai-runtimes", args.get("--tag"), process.env.GITHUB_TOKEN);
-  preflight({ tag: args.get("--tag"), previous, candidate, ...state });
+  if (!state || typeof state !== "object" || !Array.isArray(state.existingTags) || !Array.isArray(state.existingReleases)) throw new Error("release state must list existingTags and existingReleases");
+  preflight({ tag: args.get("--tag"), previous, candidate, existingTags: state.existingTags, existingReleases: state.existingReleases });
   console.log("Release/tag/sequence/timestamp preflight passed before signing.");
 }
 

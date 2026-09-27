@@ -14,6 +14,7 @@ test("accepts exact released metadata", () => assert.equal(validateManifest(sour
 for (const [name, mutate, pattern] of [
   ["duplicate runtime IDs", (m) => m.runtimes.push(structuredClone(m.runtimes[0])), /duplicate runtime id/],
   ["archive traversal", (m) => { m.runtimes[0].entrypoints = ["../runtime.exe"]; }, /unsafe/],
+  ["non-string entrypoint", (m) => { m.runtimes[0].entrypoints = [123]; }, /unique entrypoints/],
   ["wrong exact size", (m) => { m.runtimes[0].archive.size = 0; }, /exact size/],
   ["bad hash", (m) => { m.runtimes[0].archive.sha256 = "bad"; }, /SHA-256/],
   ["mutable release URL", (m) => { m.runtimes[0].archive.url = "https://raw.githubusercontent.com/makekosmos/local-ai-runtimes/main/x.zip"; }, /immutable versioned release/],
@@ -56,4 +57,10 @@ test("preflight rejects existing release and tag before signing", () => {
   candidate.status = "release";
   assert.throws(() => preflight({ tag: "v1", existingTags: ["v1"], previous: source, candidate, now: fixedNow }), /tag already exists/);
   assert.throws(() => preflight({ tag: "v1", existingReleases: ["v1"], previous: source, candidate, now: fixedNow }), /release already exists/);
+});
+
+test("preflight rejects non-list tag/release observations", () => {
+  const candidate = structuredClone(source);
+  assert.throws(() => preflight({ tag: "v1", existingTags: "v1", previous: source, candidate, now: fixedNow }), /must be lists/);
+  assert.throws(() => preflight({ tag: "v1", existingReleases: null, previous: source, candidate, now: fixedNow }), /must be lists/);
 });
