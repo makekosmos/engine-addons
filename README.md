@@ -11,13 +11,15 @@ The three historical ZIPs were removed from the active source tree. Their full-c
 ## Local verification
 
 ```powershell
-bun install
-bun run check
+pnpm --config.lockfile=false install
+pnpm run check
 ```
 
-The repository has no package dependencies, so Bun intentionally produces no
-lockfile. The pinned Bun 1.3.14 install configures repository-owned pre-commit
-and pre-push hooks without downloading packages.
+The repository has no package dependencies, so pnpm intentionally produces no
+lockfile. The pinned pnpm 12.4.1 install configures repository-owned pre-commit
+and pre-push hooks without downloading packages. The committed
+`pnpm-workspace.yaml` sets `lockfile: false`; the explicit install flag keeps
+the same policy clear in automation.
 The dry-run is deterministic and offline. It uses the public RFC 8032 test vector, performs tag/release/sequence/timestamp preflight before signing, signs the exact candidate bytes, and verifies key ID, signature, hash, and size. It never reads a production secret.
 
 Archive validation uses only the Python standard library and rejects traversal, absolute/drive/backslash paths, symlinks, encryption, case collisions, undeclared files, ZIP bombs, missing licences, bad hash/size, and non-x64 PE entrypoints.
