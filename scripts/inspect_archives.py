@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+GENERATED_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 RELEASE_URL = re.compile(
     r"^https://github\.com/makekosmos/local-ai-runtimes/releases/download/([^/]+)/([^/]+)$"
 )
@@ -199,9 +200,11 @@ def validate_bom(bom: dict, assets: Path, now: datetime | None = None) -> list[d
     exact_keys(bom, {"schema_version", "sequence", "generated_at", "repository_commit", "release_tag", "signing_key_id", "runtimes"}, "BOM")
     if type(bom.get("schema_version")) is not int or bom["schema_version"] != 1 or type(bom.get("sequence")) is not int or bom["sequence"] <= 0:
         raise ArchiveError("invalid BOM schema or sequence")
+    if not isinstance(bom.get("generated_at"), str) or not GENERATED_AT.fullmatch(bom["generated_at"]):
+        raise ArchiveError("BOM generated_at must be canonical UTC seconds")
     try:
         generated_at = datetime.strptime(bom["generated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError) as error:
+    except ValueError as error:
         raise ArchiveError("BOM generated_at must be canonical UTC seconds") from error
     current = now or datetime.now(timezone.utc)
     if generated_at > current + timedelta(minutes=5):
@@ -213,10 +216,13 @@ def validate_bom(bom: dict, assets: Path, now: datetime | None = None) -> list[d
     tag = bom.get("release_tag")
     if not isinstance(tag, str) or not VERSIONED_TAG.fullmatch(tag):
         raise ArchiveError("BOM release_tag must be an immutable versioned tag")
+    runtimes = bom.get("runtimes")
+    if not isinstance(runtimes, list):
+        raise ArchiveError("BOM runtimes must be a list")
     results = []
     coordinates: set[str] = set()
     runtime_ids: set[str] = set()
-    for item in bom.get("runtimes", []):
+    for item in runtimes:
         exact_keys(item, {"id", "version", "platform", "architecture", "backend", "accelerator", "entrypoints", "archive", "source", "build", "licences"}, "runtime")
         runtime_id = item.get("id")
         if not isinstance(runtime_id, str) or not RUNTIME_ID.fullmatch(runtime_id):

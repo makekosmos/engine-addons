@@ -164,6 +164,17 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ArchiveError, "does not match the central directory"):
             validate_bom(bom, self.root)
 
+    def test_rejects_noncanonical_timestamp_and_non_list_runtimes(self):
+        self.make_zip()
+        bom = self.bom()
+        bom["generated_at"] = "2026-8-3T0:0:0Z"
+        with self.assertRaisesRegex(ArchiveError, "canonical UTC"):
+            validate_bom(bom, self.root, now=datetime(2026, 8, 30, 0, 1, tzinfo=timezone.utc))
+        bom = self.bom()
+        bom["runtimes"] = None
+        with self.assertRaisesRegex(ArchiveError, "list"):
+            validate_bom(bom, self.root)
+
     def test_rejects_boolean_sequence_non_string_build_and_non_zip_name(self):
         self.make_zip()
         bom = self.bom()
