@@ -77,6 +77,39 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ArchiveError, "unsafe"):
                 validate_bom(bom, self.root)
 
+    def test_rejects_windows_reserved_chars_and_device_stem_whitespace(self):
+        for bad_name in ("evil?.txt", "a*b.dll", "x<y>.dat", 'q"w".t', "p|q.t", "NUL .txt", "NUL  .txt", "AUX .dat", " NUL.txt", "COM1 .x"):
+            self.make_zip({"bin/runtime.exe": fake_pe_x64(), "LICENSE.txt": b"MIT", bad_name: b"x"})
+            bom = self.bom()
+            bom["runtimes"][0]["archive"]["files"].append(bad_name)
+            with self.assertRaisesRegex(ArchiveError, "unsafe", msg=bad_name):
+                validate_bom(bom, self.root)
+
+    def test_rejects_unsupported_compression_method(self):
+        self.make_zip()
+        blob = bytearray(self.archive.read_bytes())
+        offset = 0
+        while True:
+            offset = blob.find(b"PK\x03\x04", offset)
+            if offset == -1:
+                break
+            name_length = struct.unpack_from("<H", blob, offset + 26)[0]
+            if bytes(blob[offset + 30 : offset + 30 + name_length]) == b"LICENSE.txt":
+                struct.pack_into("<H", blob, offset + 8, 9)
+            offset += 4
+        offset = 0
+        while True:
+            offset = blob.find(b"PK\x01\x02", offset)
+            if offset == -1:
+                break
+            name_length = struct.unpack_from("<H", blob, offset + 28)[0]
+            if bytes(blob[offset + 46 : offset + 46 + name_length]) == b"LICENSE.txt":
+                struct.pack_into("<H", blob, offset + 10, 9)
+            offset += 4
+        self.archive.write_bytes(bytes(blob))
+        with self.assertRaisesRegex(ArchiveError, "unsupported compression method"):
+            validate_bom(self.bom(), self.root)
+
     def test_rejects_hash_and_size_mismatch(self):
         self.make_zip()
         bom = self.bom()

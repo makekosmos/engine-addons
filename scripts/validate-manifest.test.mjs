@@ -26,6 +26,9 @@ for (const [name, mutate, pattern] of [
   ["backend/accelerator mismatch", (m) => { m.runtimes[0].accelerator = "vulkan"; }, /mismatch/],
   ["case-colliding allowlist", (m) => { m.runtimes[0].archive.files.push("release/ggml-base.DLL"); }, /case-colliding/],
   ["Windows device name in allowlist", (m) => { m.runtimes[0].archive.files.push("NUL.txt"); }, /unsafe/],
+  ["Windows reserved char in allowlist", (m) => { m.runtimes[0].archive.files.push("Release/evil?.dll"); }, /unsafe/],
+  ["Windows device stem with whitespace", (m) => { m.runtimes[0].archive.files.push("NUL .txt"); }, /unsafe/],
+  ["leading-space allowlist member", (m) => { m.runtimes[0].archive.files.push(" Release/ggml.dll"); }, /unsafe/],
   ["release tag for a different version", (m) => { m.runtimes[0].archive.url = "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v11.9.3/whisper-cpu-bin-x64-v1.9.3.zip"; }, /immutable versioned release/],
 ]) test(name, () => assert.throws(() => {
   const manifest = structuredClone(source);

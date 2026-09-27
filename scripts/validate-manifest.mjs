@@ -82,13 +82,13 @@ export function validateManifest(manifest, { now = new Date(), maxFutureSkewMs =
 
 export function validateArchivePath(value, label = "archive path") {
   requiredString(value, label);
-  if (value.includes("\\") || value.includes("\0") || value.includes(":") || value.startsWith("/")) throw new Error(`${label} is unsafe`);
+  if (value.includes("\\") || value.includes("\0") || value.includes(":") || value.startsWith("/") || /[<>"|?*]/.test(value)) throw new Error(`${label} is unsafe`);
   const parts = value.split("/");
   if (parts.some((part) => part === "" || part === "." || part === "..")) throw new Error(`${label} is unsafe`);
   for (const part of parts) {
     const stripped = part.replace(/[. ]+$/, "");
-    const stem = stripped.split(".", 1)[0].toUpperCase();
-    if (part !== stripped || WINDOWS_DEVICES.has(stem)) throw new Error(`${label} is unsafe`);
+    const stem = part.replace(/^[. ]+|[. ]+$/g, "").split(".", 1)[0].replace(/[. ]+$/, "").toUpperCase();
+    if (part !== stripped || part.startsWith(" ") || WINDOWS_DEVICES.has(stem)) throw new Error(`${label} is unsafe`);
   }
   return true;
 }

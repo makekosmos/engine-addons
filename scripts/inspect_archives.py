@@ -44,12 +44,14 @@ def exact_keys(value: dict, required: set[str], label: str) -> None:
 def safe_member(name: str) -> PurePosixPath:
     if not name or "\\" in name or "\x00" in name or ":" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         raise ArchiveError(f"unsafe archive path: {name!r}")
+    if re.search(r'[<>|?*"]', name):
+        raise ArchiveError(f"unsafe archive path: {name!r}")
     path = PurePosixPath(name)
     if any(part in ("", ".", "..") for part in path.parts):
         raise ArchiveError(f"unsafe archive path: {name!r}")
     for part in path.parts:
-        stem = part.rstrip(" .").split(".", 1)[0].upper()
-        if part != part.rstrip(" .") or stem in WINDOWS_DEVICES:
+        stem = part.strip(" .").split(".", 1)[0].rstrip(" .").upper()
+        if part != part.rstrip(" .") or part.startswith(" ") or stem in WINDOWS_DEVICES:
             raise ArchiveError(f"unsafe Windows archive path: {name!r}")
     return path
 
@@ -178,6 +180,8 @@ def inspect_archive(archive: Path, item: dict) -> dict:
                     continue
                 if path.as_posix() not in allowed:
                     raise ArchiveError(f"{archive.name}: unexpected file {path}")
+                if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                    raise ArchiveError(f"{archive.name}: unsupported compression method {info.compress_type}: {path}")
                 try:
                     with stream.open(info, "r") as member:
                         member.read(1)  # forces local-header/name/encryption validation
