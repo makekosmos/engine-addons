@@ -14,11 +14,16 @@ const previousBytes = await readFile(new URL("../runtimes.manifest.json", import
 const previous = JSON.parse(previousBytes);
 validateManifest(previous);
 
+const previousAt = Date.parse(previous.generated_at);
+if (!Number.isFinite(previousAt)) throw new Error("previous manifest timestamp is invalid");
+const candidateAt = previousAt + 1000;
+const candidateStamp = new Date(candidateAt).toISOString().replace(/\.\d{3}Z$/, "Z");
+
 const tag = "runtime-v2.0.0";
 const candidate = {
   schema_version: 1,
   sequence: previous.sequence + 1,
-  generated_at: "2026-09-01T00:00:01Z",
+  generated_at: candidateStamp,
   status: "release",
   signing_key_id: "TEST-ONLY-rfc8032-vector-1",
   runtimes: [{
@@ -30,7 +35,7 @@ const candidate = {
     licences: [{ spdx: "MIT", path: "LICENSE.txt" }], migration_status: "release-asset"
   }]
 };
-preflight({ tag, existingTags: [], existingReleases: [], previous, candidate, now: new Date("2026-09-01T00:01:00Z") });
+preflight({ tag, existingTags: [], existingReleases: [], previous, candidate, now: new Date(candidateAt + 59_000) });
 
 const candidateBytes = Buffer.from(`${JSON.stringify(candidate, null, 2)}\n`);
 const envelope = {
