@@ -2,25 +2,25 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertSequence, validateManifest } from "./validate-manifest.mjs";
+import { assertSequence, validateComponents } from "./validate-components.mjs";
 
 export function preflight({ tag, existingTags = [], existingReleases = [], previous, candidate, now = new Date() }) {
   if (typeof tag !== "string" || !tag.trim()) throw new Error("release tag is required");
   if (!Array.isArray(existingTags) || !Array.isArray(existingReleases)) throw new Error("existing tag/release observations must be lists");
   if (existingTags.includes(tag)) throw new Error(`release tag already exists: ${tag}`);
   if (existingReleases.includes(tag)) throw new Error(`release already exists: ${tag}`);
-  validateManifest(candidate, { now });
-  if (candidate.status !== "release") throw new Error("candidate must have release status");
+  validateComponents(candidate, { now });
   assertSequence(previous, candidate);
-  for (const runtime of candidate.runtimes) {
-    const expected = `/releases/download/${tag}/${runtime.archive.name}`;
-    if (!runtime.archive.url.endsWith(expected)) throw new Error(`${runtime.id}: candidate URL does not bind the requested tag`);
+  for (const component of candidate.components) {
+    if (component.release_tag !== tag) throw new Error(`${component.id}: candidate release_tag does not bind the requested tag`);
+    const expected = `/releases/download/${tag}/${component.file}`;
+    if (!component.url.endsWith(expected)) throw new Error(`${component.id}: candidate URL does not bind the requested tag`);
   }
   return true;
 }
 
 async function githubState(repository, tag, token) {
-  const headers = { "accept": "application/vnd.github+json", "user-agent": "local-ai-runtimes-preflight" };
+  const headers = { "accept": "application/vnd.github+json", "user-agent": "engine-addons-preflight" };
   if (token) headers.authorization = `Bearer ${token}`;
   const encodedTag = tag.split("/").map(encodeURIComponent).join("/");
   const [tagResponse, releaseResponse] = await Promise.all([
@@ -39,10 +39,10 @@ async function main() {
   const candidate = JSON.parse(await readFile(args.get("--candidate"), "utf8"));
   const state = args.get("--state")
     ? JSON.parse(await readFile(args.get("--state"), "utf8"))
-    : await githubState(args.get("--repository") || "makekosmos/local-ai-runtimes", args.get("--tag"), process.env.GITHUB_TOKEN);
+    : await githubState(args.get("--repository") || "makekosmos/engine-addons", args.get("--tag"), process.env.GITHUB_TOKEN);
   if (!state || typeof state !== "object" || !Array.isArray(state.existingTags) || !Array.isArray(state.existingReleases)) throw new Error("release state must list existingTags and existingReleases");
   preflight({ tag: args.get("--tag"), previous, candidate, existingTags: state.existingTags, existingReleases: state.existingReleases });
-  console.log("Release/tag/sequence/timestamp preflight passed before signing.");
+  console.log("Release/tag/sequence/timestamp preflight passed.");
 }
 
 if (path.resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) main().catch((error) => {

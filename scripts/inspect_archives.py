@@ -19,7 +19,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 GENERATED_AT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 RELEASE_URL = re.compile(
-    r"^https://github\.com/makekosmos/local-ai-runtimes/releases/download/([^/]+)/([^/]+)$"
+    r"^https://github\.com/makekosmos/engine-addons/releases/download/([^/]+)/([^/]+)$"
 )
 VERSIONED_TAG = re.compile(r"^(?:[A-Za-z0-9][A-Za-z0-9._-]*-)?v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
@@ -211,7 +211,7 @@ def inspect_archive(archive: Path, item: dict) -> dict:
 
 
 def validate_bom(bom: dict, assets: Path, now: datetime | None = None) -> list[dict]:
-    exact_keys(bom, {"schema_version", "sequence", "generated_at", "repository_commit", "release_tag", "signing_key_id", "runtimes"}, "BOM")
+    exact_keys(bom, {"schema_version", "sequence", "generated_at", "repository_commit", "release_tag", "runtimes"}, "BOM")
     if type(bom.get("schema_version")) is not int or bom["schema_version"] != 1 or type(bom.get("sequence")) is not int or bom["sequence"] <= 0:
         raise ArchiveError("invalid BOM schema or sequence")
     if not isinstance(bom.get("generated_at"), str) or not GENERATED_AT.fullmatch(bom["generated_at"]):
@@ -225,8 +225,6 @@ def validate_bom(bom: dict, assets: Path, now: datetime | None = None) -> list[d
         raise ArchiveError("BOM generated_at is too far in the future")
     if not isinstance(bom.get("repository_commit"), str) or not COMMIT.fullmatch(bom["repository_commit"]):
         raise ArchiveError("BOM repository_commit must be a full commit SHA")
-    if not isinstance(bom.get("signing_key_id"), str) or not bom["signing_key_id"].strip():
-        raise ArchiveError("BOM signing_key_id is required")
     tag = bom.get("release_tag")
     if not isinstance(tag, str) or not VERSIONED_TAG.fullmatch(tag):
         raise ArchiveError("BOM release_tag must be an immutable versioned tag")

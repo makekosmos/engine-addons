@@ -3,7 +3,6 @@
   "sequence": 2,
   "generated_at": "2026-08-31T23:45:00Z",
   "release_tag": "runtime-v1.9.3",
-  "signing_key_id": "runtime-prod-2026-1",
   "upstream": {
     "repository": "ggml-org/whisper.cpp",
     "version": "v1.9.3",
@@ -33,7 +32,7 @@
       ],
       "archive": {
         "name": "whisper-cpu-bin-x64-v1.9.3.zip",
-        "url": "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v1.9.3/whisper-cpu-bin-x64-v1.9.3.zip",
+        "url": "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.9.3/whisper-cpu-bin-x64-v1.9.3.zip",
         "sha256": "2464c8ecdc070ccdba079b363943e979708443180fd6dda12d7d0801beeb5954",
         "size": 1436012,
         "format": "zip",
@@ -76,7 +75,7 @@
       ],
       "archive": {
         "name": "whisper-vulkan-bin-x64-v1.9.3.zip",
-        "url": "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v1.9.3/whisper-vulkan-bin-x64-v1.9.3.zip",
+        "url": "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.9.3/whisper-vulkan-bin-x64-v1.9.3.zip",
         "sha256": "520ab6225f6b0afd2e8dcbc67e196a934df44bc7932f86cc2c29796a996c48f4",
         "size": 17403912,
         "format": "zip",

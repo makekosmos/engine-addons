@@ -45,11 +45,10 @@ class ArchiveTests(unittest.TestCase):
             "generated_at": "2026-08-30T00:00:00Z",
             "repository_commit": "a" * 40,
             "release_tag": "runtime-v1.0.0",
-            "signing_key_id": "runtime-test-1",
             "runtimes": [{
                 "id": "test-runtime", "version": "1.0.0", "platform": "windows", "architecture": "x64", "backend": "cpu", "accelerator": "none",
                 "entrypoints": ["bin/runtime.exe"],
-                "archive": {"name": "runtime.zip", "url": "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v1.0.0/runtime.zip", "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest(), "format": "zip", "files": ["bin/runtime.exe", "LICENSE.txt"]},
+                "archive": {"name": "runtime.zip", "url": "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.0.0/runtime.zip", "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest(), "format": "zip", "files": ["bin/runtime.exe", "LICENSE.txt"]},
                 "source": {"project": "example", "version": "1.0.0", "commit": "b" * 40},
                 "build": {"recipe": "build.ps1", "toolchain": "msvc-19.40"},
                 "licences": [{"spdx": "MIT", "path": "LICENSE.txt"}]
@@ -137,7 +136,7 @@ class ArchiveTests(unittest.TestCase):
             validate_bom(bom, self.root)
         bom = self.bom()
         bom["runtimes"][0]["archive"]["name"] = "..\\runtime.zip"
-        bom["runtimes"][0]["archive"]["url"] = "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v1.0.0/..%5Cruntime.zip"
+        bom["runtimes"][0]["archive"]["url"] = "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.0.0/..%5Cruntime.zip"
         with self.assertRaises(ArchiveError):
             validate_bom(bom, self.root)
 
@@ -245,7 +244,7 @@ class ArchiveTests(unittest.TestCase):
             validate_bom(bom, self.root)
         bom = self.bom()
         bom["runtimes"][0]["archive"]["name"] = "runtime.bin"
-        bom["runtimes"][0]["archive"]["url"] = "https://github.com/makekosmos/local-ai-runtimes/releases/download/runtime-v1.0.0/runtime.bin"
+        bom["runtimes"][0]["archive"]["url"] = "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.0.0/runtime.bin"
         with self.assertRaisesRegex(ArchiveError, "zip basename"):
             validate_bom(bom, self.root)
 
