@@ -1,53 +1,27 @@
-# Cortex-agent runtime consumer contract
+# Engine-side consumer contract
 
-This is the complete consumer-side change request. **Do not change this repository contract while implementing Cortex.** Cortex and Dictation must consume Store/Package Index metadata but treat this signed runtime manifest as the authority for privileged runtime bytes.
+This document describes what the Engine (cortex `runtime/src/dictation/local_models/`) does with the assets published from this repository. **Do not change this repository contract while implementing Cortex.**
 
-## Trust and anti-rollback state
+## Trust model
 
-Persist atomically:
+There is no signing. Each component zip's URL, byte size and SHA-256 are compile-time constants inside the released Engine binary — the strongest trust anchor available, since Engine updates themselves are hash-verified (`latest.yml` sha512). An archive installs only when **both** the pinned size and the pinned sha256 match (`crate::file_hash::verify_size_and_sha256`, the single verifier shared with native apps and the updater).
 
-- `highest_accepted_sequence` per manifest schema;
-- trusted public keys keyed by `key_id`, validity window, and revocation boundary;
-- active runtime coordinate and its manifest hash;
-- previous known-good coordinate and manifest hash;
-- quarantine records with reason, URL, observed hash/size, and timestamp.
+Downloads must use versioned `https://github.com/makekosmos/engine-addons/releases/download/<tag>/<file>` URLs. Runtime downloads may only complete on the allowlisted GitHub release hosts (`github.com`, `release-assets.githubusercontent.com`); a redirect anywhere else fails closed. Streaming enforces a hard byte limit equal to the pinned size, rejects HTML/JSON error bodies, and resumes through `.part` files with `Range` requests.
 
-Reject unknown/revoked keys, unsupported schema, `sequence < highest_accepted_sequence`, duplicate runtime coordinates, non-HTTPS URLs, non-versioned release URLs, redirects away from the allowlisted GitHub release host, and timestamps more than five minutes in the future. A recovery downgrade requires an explicit signed rollback authorization; a local flag is insufficient.
+## Install state machine (whisper.cpp runtime)
 
-## Required install state machine
+Any failure before the commit leaves the previous install untouched; a failed archive or staging result is moved to `.<dir>.quarantine[.zip]` for inspection.
 
-`IDLE → DOWNLOADING → DOWNLOADED → METADATA_VERIFIED → ARCHIVE_VERIFIED → STAGED → SMOKE_TESTED → COMMITTED → ACTIVE`
+1. Download the pinned URL to a sibling `.<name>.download` file with the byte limit.
+2. Verify exact byte size, then SHA-256; on mismatch the archive is quarantined and nothing is installed.
+3. Inspect the ZIP before extraction: exact allowlist of member names, no traversal/backslash/ADS/NUL/duplicates/case-collisions, regular files only, per-entry and total size limits, decompression-ratio cap, and x64 PE machine type on every `.exe`/`.dll`.
+4. Extract into a fresh `.<dir>.staging` directory with create-new semantics; write `.runtime-version` and `.runtime-integrity.json` (per-file sha256 set); run `whisper-cli.exe --version` as a smoke test.
+5. Atomically swap `staging → <dir>` under a `.<dir>.transaction` marker so a crash mid-swap is recovered on the next install attempt.
 
-Any failure before `COMMITTED` moves the candidate to `QUARANTINED` and leaves `ACTIVE` untouched. A startup crash/health failure after commit moves to `ROLLING_BACK`, atomically restores the previous known-good pointer, then records `ROLLED_BACK`.
+## Reinstall checks
 
-1. Download manifest and envelope with bounded size/time. Keep the exact manifest bytes.
-2. Verify envelope schema, payload type, trusted key ID, payload byte size, SHA-256, then Ed25519 signature over those exact bytes.
-3. Parse and validate manifest only after signature verification. Enforce sequence/timestamp/platform/architecture/backend and select exactly one coordinate.
-4. Download the archive to a newly created quarantine directory on the same volume as installation. Never use the final path and never execute from quarantine.
-5. Stream with a hard byte limit equal to `archive.size`; reject early EOF, extra bytes, or SHA-256 mismatch. Call `FlushFileBuffers` before verification success is recorded.
-6. Inspect ZIP central and local headers before extraction. Reject absolute, UNC, drive, backslash, empty, `.`, `..`, ADS (`:`), device names, NUL, symlink/reparse-point, encrypted, duplicate/case-colliding, undeclared, excessive count/size/ratio entries. Require every declared licence and entrypoint; validate PE x64 machine type.
-7. Extract only allowlisted files into a fresh staging directory using create-new/no-follow semantics. Re-open and hash files after extraction. Apply non-writable-by-unprivileged-users ACLs; do not inherit unsafe ACLs from the archive.
-8. Run bounded smoke tests from staging with network disabled and a restricted token/job object: `--version`, startup/clean shutdown, CPU inference, and Vulkan capability with explicit CPU fallback. Never load DLLs from the current directory outside staging.
-9. Atomically rename staging to the content-addressed final directory `<runtime-root>/<id>/<version>/<archive-sha256>/`. Atomically replace a small active-pointer file after fsync/`FlushFileBuffers`; never overwrite the previous directory.
-10. Start through the active pointer and health-check. Retain at least one previous known-good directory. Garbage collection must never remove active, previous, quarantined-for-investigation, or pinned rollback versions.
+A present runtime is reused only when `.runtime-version` matches the compiled version and every file's sha256 matches `.runtime-integrity.json`. A Vulkan install without `whisper-server.exe` is treated as outdated and re-downloaded.
 
-## Concurrency and crash recovery
+## Adding new components
 
-Use one cross-process install lock per runtime ID. On startup, delete only incomplete staging directories that contain the tool-owned marker and are not referenced by active/previous pointers; move incomplete downloads to quarantine. A crash between final-directory rename and pointer swap leaves the old runtime active. A crash after pointer swap triggers health validation and rollback.
-
-## Error contract and telemetry
-
-Expose stable error codes: `MANIFEST_SIGNATURE`, `MANIFEST_SEQUENCE`, `MANIFEST_TIMESTAMP`, `MANIFEST_SCHEMA`, `ASSET_HOST`, `ASSET_SIZE`, `ASSET_HASH`, `ARCHIVE_PATH`, `ARCHIVE_CONTENT`, `ARCHIVE_BOMB`, `PLATFORM`, `LICENCE`, `SMOKE_CPU`, `SMOKE_VULKAN`, `COMMIT_ATOMIC`, `HEALTHCHECK`, `ROLLBACK`.
-
-Telemetry must never include manifest private material, local paths containing usernames, or archive contents. It should include runtime coordinate, manifest sequence/hash prefix, error code, rollback result, and quarantine record ID.
-
-## Acceptance tests for the Cortex agent
-
-- Valid install and update; same-version no-op; concurrent update serialization.
-- Wrong key/key ID/signature, altered manifest bytes, sequence rollback, future timestamp.
-- Redirect/host change, short/long body, exact size mismatch, hash mismatch.
-- ZIP traversal/UNC/drive/backslash/ADS/device name/symlink/reparse/collision/bomb/unexpected executable/missing licence/wrong PE architecture.
-- Crash at every transition, startup failure after pointer swap, successful automatic rollback, cleanup without deleting known-good data.
-- CPU inference; Vulkan available; Vulkan unavailable with allowed fallback; Vulkan failure when fallback is forbidden.
-
-Consumer completion evidence must link test logs and commit SHA in `makekosmos/local-ai-runtimes#1`; until then the runtime consumer acceptance gate remains open.
+New heavy components get a `kind` + pinned coordinate in the Engine source and an entry in `components.json`. This file is documentation/build input — the Engine never fetches it.
