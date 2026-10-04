@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileSha256, sha256sums, validateComponents } from "./validate-components.mjs";
+import { fileSha256, sha256sums, validateArchivePath, validateComponents } from "./validate-components.mjs";
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) args.set(process.argv[index], process.argv[index + 1]);
@@ -11,6 +11,9 @@ if (!/^[0-9a-f]{40}$/.test(repositoryCommit)) throw new Error("repository commit
 const plan = JSON.parse(await readFile(args.get("--plan"), "utf8"));
 const components = [];
 for (const runtime of plan.runtimes ?? []) {
+  validateArchivePath(runtime.archive?.name, `${runtime.id}: archive name`);
+  if (runtime.archive.name.includes("/") || !runtime.archive.name.toLowerCase().endsWith(".zip")) throw new Error(`${runtime.id}: archive name must be a flat .zip basename`);
+  if (runtime.source?.commit !== plan.upstream?.commit || runtime.source?.version !== plan.upstream?.version) throw new Error(`${runtime.id}: source differs from pinned upstream`);
   const archivePath = path.join(args.get("--assets"), runtime.archive.name);
   const { sha256, size } = await fileSha256(archivePath);
   if (sha256 !== runtime.archive.sha256 || size !== runtime.archive.size) throw new Error(`${runtime.id}: reproducible archive hash or size mismatch`);

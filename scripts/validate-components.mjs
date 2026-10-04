@@ -50,6 +50,7 @@ export function validateComponents(manifest, { now = new Date(), maxFutureSkewMs
     if (component.format !== "zip") throw new Error(`${component.id}: ZIP archive metadata is required`);
     validateArchivePath(component.file, `${component.id}: archive name`);
     if (component.file.includes("/")) throw new Error(`${component.id}: archive name must be flat`);
+    if (!component.file.toLowerCase().endsWith(".zip")) throw new Error(`${component.id}: archive name must be a .zip basename`);
     if (!SHA256.test(component.sha256 || "")) throw new Error(`${component.id}: exact SHA-256 is required`);
     if (!Number.isSafeInteger(component.size) || component.size <= 0) throw new Error(`${component.id}: exact size is required`);
     if (!Array.isArray(component.files) || component.files.length === 0) throw new Error(`${component.id}: complete archive file allowlist is required`);
@@ -110,8 +111,12 @@ export function sha256sums(entries) {
 export function parseSha256sums(text) {
   const sums = new Map();
   for (const line of text.split("\n")) {
+    if (!line) continue;
     const match = /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(line);
-    if (match) sums.set(match[2].trim(), match[1].toLowerCase());
+    if (!match) throw new Error("SHA256SUMS.txt contains a malformed line");
+    const file = match[2].trim();
+    if (sums.has(file)) throw new Error(`SHA256SUMS.txt lists ${file} more than once`);
+    sums.set(file, match[1].toLowerCase());
   }
   return sums;
 }
