@@ -81,6 +81,7 @@ export function validateComponents(manifest, { now = new Date(), maxFutureSkewMs
 export function validateArchivePath(value, label = "archive path") {
   requiredString(value, label);
   if (value.includes("\\") || value.includes("\0") || value.includes(":") || value.startsWith("/") || /[<>"|?*]/.test(value)) throw new Error(`${label} is unsafe`);
+  if (/[^\x21-\x7e]|[#%]/.test(value)) throw new Error(`${label} is unsafe`);
   const parts = value.split("/");
   if (parts.some((part) => part === "" || part === "." || part === "..")) throw new Error(`${label} is unsafe`);
   for (const part of parts) {
