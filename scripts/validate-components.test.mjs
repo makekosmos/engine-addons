@@ -31,6 +31,7 @@ for (const [name, mutate, pattern] of [
   ["release tag for a different version", (m) => { m.components[0].url = "https://github.com/makekosmos/engine-addons/releases/download/runtime-v11.9.3/whisper-cpu-bin-x64-v1.9.3.zip"; }, /immutable versioned release/],
   ["release_tag not matching the URL tag", (m) => { m.components[0].release_tag = "runtime-v11.9.3"; }, /release_tag/],
   ["missing kind", (m) => { delete m.components[0].kind; }, /invalid kind/],
+  ["non-zip archive name", (m) => { m.components[0].file = "whisper.bin"; m.components[0].url = "https://github.com/makekosmos/engine-addons/releases/download/runtime-v1.9.3/whisper.bin"; }, /zip basename/],
 ]) test(name, () => assert.throws(() => {
   const manifest = structuredClone(source);
   mutate(manifest);
@@ -46,6 +47,11 @@ test("sha256sums emits sha256sum format and parses back", () => {
   const parsed = parseSha256sums(text);
   assert.equal(parsed.get("a.zip"), "a".repeat(64));
   assert.equal(parsed.get("b.zip"), "b".repeat(64));
+});
+
+test("sha256sums parser fails closed on malformed or duplicated lines", () => {
+  assert.throws(() => parseSha256sums(`${"a".repeat(64)}  a.zip\nnot a sums line\n`), /malformed/);
+  assert.throws(() => parseSha256sums(`${"a".repeat(64)}  a.zip\n${"b".repeat(64)}  a.zip\n`), /more than once/);
 });
 
 test("sequence increments exactly once and timestamp increases", () => {
