@@ -46,6 +46,8 @@ def safe_member(name: str) -> PurePosixPath:
         raise ArchiveError(f"unsafe archive path: {name!r}")
     if re.search(r'[<>|?*"]', name):
         raise ArchiveError(f"unsafe archive path: {name!r}")
+    if re.search(r'[^\x21-\x7e]|[#%]', name):
+        raise ArchiveError(f"unsafe archive path: {name!r}")
     path = PurePosixPath(name)
     if any(part in ("", ".", "..") for part in path.parts):
         raise ArchiveError(f"unsafe archive path: {name!r}")

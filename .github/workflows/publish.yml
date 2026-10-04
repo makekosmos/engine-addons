@@ -20,6 +20,8 @@ jobs:
         with:
           ref: ${{ inputs.bom_ref }}
           persist-credentials: false
+      - name: Validate reviewed release plan
+        run: node scripts/validate-plan.mjs
       - name: Resolve immutable plan inputs
         id: plan
         shell: pwsh

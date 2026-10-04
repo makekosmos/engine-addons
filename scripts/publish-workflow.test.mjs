@@ -11,6 +11,8 @@ test("production workflow builds, verifies, and immutably publishes in order", (
   assert.match(workflow, /CPU inference smoke failed/);
   assert.match(workflow, /Vulkan runtime CPU fallback smoke failed/);
   assert.match(workflow, /inspect_archives\.py/);
+  assert.match(workflow, /validate-plan\.mjs/);
+  assert.ok(workflow.indexOf("validate-plan.mjs") < workflow.indexOf("Invoke-WebRequest"));
   assert.match(workflow, /environment: production/);
   assert.ok(workflow.indexOf("Preflight immutable release") < workflow.indexOf("gh release create"));
   assert.ok(workflow.indexOf("gh release create") < workflow.indexOf("gh release upload"));
